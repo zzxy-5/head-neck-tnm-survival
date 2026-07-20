@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.vite/
+.venv/
+.pytest_cache/
+coverage/
+*.tsbuildinfo
+__pycache__/
+*.pyc
+.DS_Store
+._*
