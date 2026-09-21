@@ -173,8 +173,20 @@ def _validate_normalized_records(records: Sequence[TNMRecord]) -> None:
             )
 
 
-def build_site_artifact(site: str, records: Sequence[TNMRecord]) -> dict[str, Any]:
-    if site not in SITE_SLUGS:
+def build_site_artifact(
+    site: str,
+    records: Sequence[TNMRecord],
+    *,
+    site_slugs: Mapping[str, str] = SITE_SLUGS,
+) -> dict[str, Any]:
+    """Build one site-scoped artifact using the production TNM logic.
+
+    ``site_slugs`` defaults to the deployed v1 mapping.  Analysis-only
+    rebuilds may pass an explicit alternative mapping without mutating the
+    production constant or changing any matching, KM, or serialization rule.
+    """
+
+    if site not in site_slugs:
         raise ValueError(f"Unsupported TNM site: {site}")
     if any(record.site != site for record in records):
         raise ValueError(f"Site artifact for {site} received records from another site")
@@ -227,17 +239,21 @@ def build_site_artifact(site: str, records: Sequence[TNMRecord]) -> dict[str, An
     }
 
 
-def build_site_shards(records: Sequence[TNMRecord]) -> tuple[dict[str, dict], dict]:
+def build_site_shards(
+    records: Sequence[TNMRecord],
+    *,
+    site_slugs: Mapping[str, str] = SITE_SLUGS,
+) -> tuple[dict[str, dict], dict]:
     _validate_normalized_records(records)
     records_by_site: dict[str, list[TNMRecord]] = defaultdict(list)
     for record in records:
-        if record.site not in SITE_SLUGS:
+        if record.site not in site_slugs:
             raise ValueError(f"Unsupported TNM site: {record.site}")
         records_by_site[record.site].append(record)
 
-    sites = [site for site in SITE_SLUGS if site in records_by_site]
+    sites = [site for site in site_slugs if site in records_by_site]
     shards = {
-        site: build_site_artifact(site, records_by_site[site])
+        site: build_site_artifact(site, records_by_site[site], site_slugs=site_slugs)
         for site in sites
     }
-    return shards, {"sites": {site: f"{SITE_SLUGS[site]}.json" for site in sites}}
+    return shards, {"sites": {site: f"{site_slugs[site]}.json" for site in sites}}

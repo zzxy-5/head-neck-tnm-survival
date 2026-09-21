@@ -7,6 +7,7 @@ sys.path.insert(0, str(PROJECT / "scripts"))
 
 from era_survival.normalization import (
     age_groups,
+    choose_raw_mx_audit_source,
     choose_tnm_source,
     normalize_m_stage,
     normalize_n_stage,
@@ -15,6 +16,7 @@ from era_survival.normalization import (
     parse_survival_months,
 )
 from era_survival.schema import SOURCE_COLUMNS, TNMRecord
+from era_survival.site_mapping import map_site_v2
 
 
 class NormalizationTests(unittest.TestCase):
@@ -23,6 +25,7 @@ class NormalizationTests(unittest.TestCase):
             SOURCE_COLUMNS["sex"]: "Female",
             SOURCE_COLUMNS["year"]: year,
             SOURCE_COLUMNS["site"]: "Tongue",
+            SOURCE_COLUMNS["primary_site"]: "022",
             SOURCE_COLUMNS["histology"]: "Squamous cell neoplasms",
             SOURCE_COLUMNS["age"]: "45 years",
             SOURCE_COLUMNS["survival_months"]: "12.0",
@@ -30,6 +33,7 @@ class NormalizationTests(unittest.TestCase):
             SOURCE_COLUMNS["ajcc_t"]: "T1",
             SOURCE_COLUMNS["ajcc_n"]: "N0",
             SOURCE_COLUMNS["ajcc_m"]: "M0",
+            SOURCE_COLUMNS["ajcc_m_6"]: "M0",
             SOURCE_COLUMNS["combined_t"]: "T4a",
             SOURCE_COLUMNS["combined_n"]: "N2c",
             SOURCE_COLUMNS["combined_m"]: "M1",
@@ -78,6 +82,7 @@ class NormalizationTests(unittest.TestCase):
             SOURCE_COLUMNS["ajcc_t"]: "T1",
             SOURCE_COLUMNS["ajcc_n"]: "N0",
             SOURCE_COLUMNS["ajcc_m"]: "M0",
+            SOURCE_COLUMNS["ajcc_m_6"]: "MX",
             SOURCE_COLUMNS["combined_t"]: "c4A",
             SOURCE_COLUMNS["combined_n"]: "c2B",
             SOURCE_COLUMNS["combined_m"]: "c1",
@@ -90,6 +95,14 @@ class NormalizationTests(unittest.TestCase):
             choose_tnm_source(row, 2016),
             ("c4A", "c2B", "c1", "SEER Combined TNM"),
         )
+        self.assertEqual(choose_raw_mx_audit_source(row, 2015), "MX")
+        self.assertEqual(choose_raw_mx_audit_source(row, 2016), "c1")
+
+    def test_legacy_ajcc6_mx_overrides_ajcc7_na_to_m0(self):
+        row = self.make_row(year="2015", ajcc_m="NA", ajcc_m_6="MX")
+        record = normalize_tnm_record(row)
+        self.assertEqual(record.m_stage, "M0")
+        self.assertEqual(record.stage_source, "AJCC 7th edition")
 
     def test_tnm_record_uses_only_the_years_era_columns(self):
         record_2015 = normalize_tnm_record(self.make_row(year="2015"))
@@ -146,6 +159,39 @@ class NormalizationTests(unittest.TestCase):
         )
         self.assertEqual(record.sex, "Female")
         self.assertEqual(record.histology_group, "Squamous cell neoplasms")
+        self.assertEqual(record.site_v1, record.site)
+        self.assertEqual(record.site_v2, "Oral Tongue")
+        self.assertTrue(record.main_analysis_included)
+
+    def test_site_v2_rejects_missing_or_unmapped_primary_site(self):
+        row = self.make_row()
+        row.pop(SOURCE_COLUMNS["primary_site"])
+        with self.assertRaisesRegex(ValueError, "Primary Site is missing"):
+            normalize_tnm_record(row)
+        for raw in ("", "C99.9", "not-a-code"):
+            with self.subTest(raw=raw):
+                with self.assertRaises(ValueError):
+                    normalize_tnm_record(self.make_row(primary_site=raw))
+
+    def test_site_v2_boundary_mappings_accept_numeric_and_canonical_codes(self):
+        expected = {
+            "019": "Oropharynx",
+            "C02.4": "Oropharynx",
+            "051": "Oropharynx",
+            "052": "Oropharynx",
+            "C09.9": "Oropharynx",
+            "100": "Oropharynx",
+            "101": "Larynx",
+            "020": "Oral Tongue",
+            "C02.9": "Oral Tongue",
+            "C11.9": "Nasopharynx",
+            "739": "Thyroid",
+        }
+        for raw, site in expected.items():
+            with self.subTest(raw=raw):
+                mapped, included, _code = map_site_v2(raw)
+                self.assertEqual(mapped, site)
+                self.assertEqual(included, site not in {"Nasopharynx", "Thyroid"})
 
     def test_blank_or_whitespace_sex_is_rejected(self):
         for raw in ("", "   "):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -14,6 +15,12 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 from era_survival.cohorts import CohortBundle, load_cohort
 from era_survival.lookup_builder import THRESHOLDS, build_site_shards
 from era_survival.schema import DEFAULT_SOURCE_PATHS, PUBLIC_DATA_DIR, SITE_SLUGS, TNMRecord
+from era_survival.site_mapping import (
+    SITE_V2_ALL_SITES,
+    SITE_V2_EXCLUDED_SITES,
+    SITE_V2_MAPPING_POLICY,
+    SITE_V2_SLUGS,
+)
 from era_survival.validation import (
     FIXED_TIME_POLICY,
     MX_POLICY,
@@ -27,36 +34,82 @@ N_STAGES = ["N0", "N1", "N2", "N3", "Unknown"]
 M_STAGES = ["M0", "M1", "Unknown"]
 
 
-def build_metadata(bundle: CohortBundle) -> dict:
-    site_record_counts = Counter(record.site for record in bundle.records)
+def build_metadata(
+    bundle: CohortBundle,
+    *,
+    production_records: Sequence[TNMRecord] | None = None,
+    site_slugs: dict[str, str] = SITE_SLUGS,
+    cohort_version: str = "site_v1",
+) -> dict:
+    records = list(bundle.records if production_records is None else production_records)
+    site_record_counts = Counter(record.site for record in records)
     exclusion_counts = {
         field: count
         for field, count in bundle.flow_counts.items()
         if field.endswith("_excluded")
     }
     generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    return {
+    metadata = {
         "version": 1,
         "generated_at": generated_at,
         "source_counts": dict(sorted(bundle.source_counts.items())),
         "flow_counts": dict(bundle.flow_counts),
         "exclusion_counts": exclusion_counts,
-        "eligible_record_count": len(bundle.records),
+        "cohort_version": cohort_version,
+        "source_eligible_record_count": len(bundle.records),
+        "eligible_record_count": len(records),
         "site_record_counts": {
             site: site_record_counts.get(site, 0)
-            for site in SITE_SLUGS
+            for site in site_slugs
         },
         "stage_source_policy": dict(STAGE_SOURCE_POLICY),
         "mx_policy": MX_POLICY,
         "fixed_time_policy": FIXED_TIME_POLICY,
         "thresholds": dict(THRESHOLDS),
     }
+    has_site_v2 = [
+        (record.site_v2 is not None, record.main_analysis_included is not None)
+        for record in bundle.records
+    ]
+    all_legacy = not has_site_v2 or all(not site and not flag for site, flag in has_site_v2)
+    all_complete = all(site and flag for site, flag in has_site_v2)
+    if not all_legacy and not all_complete:
+        raise ValueError(
+            "site-v2 metadata cannot be built from mixed or partially populated "
+            "site_v2/main_analysis_included fields"
+        )
+    if all_complete:
+        site_v2_record_counts = Counter(record.site_v2 for record in bundle.records)
+        excluded_v2_counts = Counter(
+            record.site_v2
+            for record in bundle.records
+            if record.main_analysis_included is False
+        )
+        metadata.update({
+            "site_v2_record_counts": {
+                site: site_v2_record_counts.get(site, 0)
+                for site in SITE_V2_ALL_SITES
+            },
+            "main_analysis_record_count": sum(
+                1 for record in bundle.records if record.main_analysis_included is True
+            ),
+            "site_v2_excluded_site_counts": {
+                site: excluded_v2_counts.get(site, 0)
+                for site in SITE_V2_EXCLUDED_SITES
+            },
+            "site_v2_mapping_policy": SITE_V2_MAPPING_POLICY,
+        })
+    return metadata
 
 
-def build_options(records: Sequence[TNMRecord]) -> dict:
+def build_options(
+    records: Sequence[TNMRecord],
+    *,
+    site_slugs: dict[str, str] = SITE_SLUGS,
+) -> dict:
     return {
         "version": 1,
-        "sites": list(SITE_SLUGS),
+        "sites": list(site_slugs),
         "sexes": sorted({record.sex for record in records}),
         "histology_groups": sorted({record.histology_group for record in records}),
         "age_groups": list(AGE_GROUPS),
@@ -157,6 +210,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build focused detailed-TNM artifacts")
     parser.add_argument("--input", action="append", dest="inputs")
     parser.add_argument("--output", type=Path, default=PUBLIC_DATA_DIR)
+    parser.add_argument(
+        "--site-v2-main",
+        action="store_true",
+        help="build the frozen 10-site site-v2 main-analysis production cohort",
+    )
     args = parser.parse_args(argv)
     paths = tuple(Path(value) for value in args.inputs) if args.inputs else DEFAULT_SOURCE_PATHS
     paths = tuple(path.expanduser().resolve() for path in paths)
@@ -164,10 +222,54 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("duplicate input path after resolution")
 
     bundle = load_cohort(paths)
-    shards, manifest = build_site_shards(bundle.records)
-    metadata = build_metadata(bundle)
-    options = build_options(bundle.records)
-    validate_artifact_set(metadata, options, manifest, shards)
+    if args.site_v2_main:
+        incomplete = [
+            record
+            for record in bundle.records
+            if record.site_v2 is None or record.main_analysis_included is None
+        ]
+        if incomplete:
+            raise ValueError("site-v2 main build requires complete site-v2 fields")
+        records = [
+            replace(record, site=str(record.site_v2))
+            for record in bundle.records
+            if record.main_analysis_included is True
+        ]
+        site_slugs = SITE_V2_SLUGS
+        cohort_version = "site_v2_main"
+    else:
+        records = bundle.records
+        site_slugs = SITE_SLUGS
+        cohort_version = "site_v1"
+
+    shards, manifest = build_site_shards(records, site_slugs=site_slugs)
+    metadata = build_metadata(
+        bundle,
+        production_records=records,
+        site_slugs=site_slugs,
+        cohort_version=cohort_version,
+    )
+    if args.site_v2_main:
+        metadata.update({
+            "precomputed_combination_count": sum(
+                len(shard["rows"]) for shard in shards.values()
+            ),
+            "returnable_combination_count": sum(
+                row["sample_size"] >= THRESHOLDS["minimum_sample"]
+                for shard in shards.values()
+                for row in shard["rows"]
+            ),
+        })
+    options = build_options(records, site_slugs=site_slugs)
+    validate_artifact_set(
+        metadata,
+        options,
+        manifest,
+        shards,
+        site_slugs=site_slugs,
+        expected_eligible_record_count=len(records),
+        cohort_version=cohort_version,
+    )
 
     artifacts = [
         ("metadata.json", metadata),
@@ -176,7 +278,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ]
     artifacts.extend(
         (f"lookup/{manifest['sites'][site]}", shards[site])
-        for site in SITE_SLUGS
+        for site in site_slugs
     )
     write_artifacts_atomically(artifacts, args.output)
     expected_names = {name for name, _payload in artifacts}
@@ -185,7 +287,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(json.dumps({
         "output": str(args.output),
         "source_rows": bundle.flow_counts["source_rows"],
-        "eligible_records": len(bundle.records),
+        "source_eligible_records": len(bundle.records),
+        "eligible_records": len(records),
+        "cohort_version": cohort_version,
         "site_shards": len(shards),
         "site_record_counts": metadata["site_record_counts"],
     }, ensure_ascii=False))

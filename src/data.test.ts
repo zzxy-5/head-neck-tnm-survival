@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { loadCoreData, loadSiteShard } from './data'
 import type { LookupArtifact, SiteManifest } from './types'
 
-const manifest: SiteManifest = { sites: { Tongue: 'tongue.json' } }
+const manifest: SiteManifest = { sites: { 'Oral Tongue': 'oral-tongue.json' } }
 
 const coreResponses = {
-  'data/metadata.json': { eligible_record_count: 211160 },
-  'data/options.json': { sites: ['Tongue'], m_stages: ['M0', 'M1', 'Unknown'] },
+  'data/metadata.json': { eligible_record_count: 106952 },
+  'data/options.json': { sites: ['Oral Tongue'], m_stages: ['M0', 'M1', 'Unknown'] },
   'data/site_manifest.json': manifest,
 }
 
@@ -44,22 +44,22 @@ describe('static data loading', () => {
 
   it('maps a requested site through the manifest to its lookup shard', async () => {
     const artifact: LookupArtifact = {
-      site: 'Tongue',
+      site: 'Oral Tongue',
       thresholds: { minimum_sample: 20, stable_sample: 50 },
       rows: [],
       index: {},
     }
-    const fetcher = fetcherFor({ 'data/lookup/tongue.json': artifact })
+    const fetcher = fetcherFor({ 'data/lookup/oral-tongue.json': artifact })
 
-    await expect(loadSiteShard('Tongue', manifest, fetcher)).resolves.toEqual(artifact)
-    expect(fetcher).toHaveBeenCalledWith(`${import.meta.env.BASE_URL}data/lookup/tongue.json`)
+    await expect(loadSiteShard('Oral Tongue', manifest, fetcher)).resolves.toEqual(artifact)
+    expect(fetcher).toHaveBeenCalledWith(`${import.meta.env.BASE_URL}data/lookup/oral-tongue.json`)
   })
 
   it('names the missing site shard in a readable error', async () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: false, status: 404 })
 
-    await expect(loadSiteShard('Tongue', manifest, fetcher)).rejects.toThrow(
-      'tongue.json (404)',
+    await expect(loadSiteShard('Oral Tongue', manifest, fetcher)).rejects.toThrow(
+      'oral-tongue.json (404)',
     )
   })
 })

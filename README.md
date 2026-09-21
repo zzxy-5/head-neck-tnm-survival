@@ -1,9 +1,8 @@
 # SEER Detailed TNM Survival Lookup
 
-This isolated static website provides retrospective, subgroup-level overall
-survival estimates for 13 head and neck anatomical site groups. It uses a
-single detailed TNM cohort of diagnoses from 2010 through 2017 and does not
-change the original website in `/Volumes/PortableSSD/prediction`.
+This static website provides retrospective, subgroup-level overall survival
+estimates for the frozen 10-site `site_v2` main-analysis cohort. It uses a
+single detailed TNM cohort of diagnoses from 2010 through 2017.
 
 ## Data scope
 
@@ -14,25 +13,23 @@ The build reads four SEER exports from the parent workspace:
 - `/Volumes/PortableSSD/prediction/export_C30-C39呼吸和胸腔内器官恶性肿瘤.csv`
 - `/Volumes/PortableSSD/prediction/export_C73-C75.csv`
 
-The 1,808,471 source rows are screened to exactly 211,160 eligible records.
-The 13 included site groups are:
+The 1,808,471 source rows first yield 211,160 TNM-eligible records. The frozen
+main-analysis definition excludes the prespecified nasopharynx and thyroid
+groups and contains exactly 106,952 records across 10 `site_v2` groups:
 
 | Site | Eligible records |
 | --- | ---: |
 | Lip | 5,065 |
-| Tongue | 26,135 |
-| Gum and Other Mouth | 10,947 |
+| Oral Tongue | 12,233 |
+| Gum and Other Mouth | 9,444 |
 | Floor of Mouth | 3,605 |
 | Salivary Gland | 9,282 |
-| Tonsil | 15,763 |
-| Oropharynx | 3,451 |
-| Nasopharynx | 4,493 |
+| Oropharynx | 34,483 |
 | Hypopharynx | 4,209 |
 | Other Oral Cavity and Pharynx | 1,740 |
 | Nose, Nasal Cavity and Middle Ear | 4,969 |
-| Larynx | 21,786 |
-| Thyroid | 99,715 |
-| **Total** | **211,160** |
+| Larynx | 21,922 |
+| **Total** | **106,952** |
 
 ## Methods
 
@@ -64,7 +61,7 @@ site:
 
 - `metadata.json`: source provenance, cohort flow, record counts, policies,
   and thresholds.
-- `options.json`: shared filter choices, including all 13 sites.
+- `options.json`: shared filter choices, including all 10 `site_v2` sites.
 - `site_manifest.json`: site-to-shard map.
 - `lookup/<site>.json`: site-local rows and lookup index.
 
@@ -95,6 +92,7 @@ Rebuild static artifacts from all four exports:
 
 ```bash
 PYTHONPATH=scripts python3 scripts/build_artifacts.py \
+  --site-v2-main \
   --input /Volumes/PortableSSD/prediction/export_C00-C09.csv \
   --input /Volumes/PortableSSD/prediction/export_C10-C14.csv \
   --input /Volumes/PortableSSD/prediction/export_C30-C39呼吸和胸腔内器官恶性肿瘤.csv \

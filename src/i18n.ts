@@ -168,6 +168,7 @@ const zhValues: Record<string, string> = {
   'Gum and Other Mouth': '牙龈及口腔其他部位',
   Hypopharynx: '下咽',
   Lip: '唇',
+  'Oral Tongue': '舌体（舌前2/3）',
   Nasopharynx: '鼻咽',
   Oropharynx: '口咽',
   'Other Oral Cavity and Pharynx': '口腔及咽其他部位',

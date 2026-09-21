@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE_PATHS = (
-    PROJECT_ROOT.parents[2] / "export_C00-C09.csv",
-    PROJECT_ROOT.parents[2] / "export_C10-C14.csv",
-    PROJECT_ROOT.parents[2] / "export_C30-C39呼吸和胸腔内器官恶性肿瘤.csv",
-    PROJECT_ROOT.parents[2] / "export_C73-C75.csv",
+    PROJECT_ROOT.parent / "export_C00-C09.csv",
+    PROJECT_ROOT.parent / "export_C10-C14.csv",
+    PROJECT_ROOT.parent / "export_C30-C39呼吸和胸腔内器官恶性肿瘤.csv",
+    PROJECT_ROOT.parent / "export_C73-C75.csv",
 )
 PUBLIC_DATA_DIR = PROJECT_ROOT / "public" / "data"
 
@@ -46,9 +47,11 @@ SOURCE_COLUMNS = {
     "ajcc_t": "Derived AJCC T, 7th ed (2010-2015)",
     "ajcc_n": "Derived AJCC N, 7th ed (2010-2015)",
     "ajcc_m": "Derived AJCC M, 7th ed (2010-2015)",
+    "ajcc_m_6": "Derived AJCC M, 6th ed (2004-2015)",
     "combined_t": "Derived SEER Combined T (2016-2017)",
     "combined_n": "Derived SEER Combined N (2016-2017)",
     "combined_m": "Derived SEER Combined M (2016-2017)",
+    "primary_site": "Primary Site",
 }
 
 @dataclass(frozen=True)
@@ -65,3 +68,9 @@ class TNMRecord:
     n_stage: str
     m_stage: str
     stage_source: str
+    # ``site`` remains the site-v1 compatibility field.  These defaults keep
+    # legacy positional fixtures valid while normalized real rows populate all
+    # three site-v2 fields.
+    site_v1: str | None = field(default=None, compare=False)
+    site_v2: str | None = field(default=None, compare=False)
+    main_analysis_included: bool | None = field(default=None, compare=False)

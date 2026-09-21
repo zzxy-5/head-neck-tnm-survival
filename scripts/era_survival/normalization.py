@@ -5,12 +5,14 @@ from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
 
 from .schema import SOURCE_COLUMNS, TNMRecord
+from .site_mapping import map_site_v2
 
 UNKNOWN_INPUTS = {"", "Blank(s)", "N/A", "Not applicable", "Unknown", "88", "99"}
 AGE_RECODE_PATTERN = re.compile(r"(?P<age>\d+)(?:\+)? years")
 AJCC_T = SOURCE_COLUMNS["ajcc_t"]
 AJCC_N = SOURCE_COLUMNS["ajcc_n"]
 AJCC_M = SOURCE_COLUMNS["ajcc_m"]
+AJCC_M_6 = SOURCE_COLUMNS["ajcc_m_6"]
 COMBINED_T = SOURCE_COLUMNS["combined_t"]
 COMBINED_N = SOURCE_COLUMNS["combined_n"]
 COMBINED_M = SOURCE_COLUMNS["combined_m"]
@@ -107,12 +109,21 @@ def choose_tnm_source(row: Mapping[str, str], year: int) -> tuple[str, str, str,
     raise ValueError(f"Diagnosis year outside TNM cohort: {year}")
 
 
+def choose_raw_mx_audit_source(row: Mapping[str, str], year: int) -> str:
+    """Return the source value used to audit explicit pre-normalization MX."""
+    if 2010 <= year <= 2015:
+        return row[AJCC_M_6]
+    if 2016 <= year <= 2017:
+        return row[COMBINED_M]
+    raise ValueError(f"Diagnosis year outside TNM cohort: {year}")
+
+
 def _survival_record_fields(row: Mapping[str, str], year: int) -> dict[str, object]:
     age_group, coarse_age_group = age_groups(row[SOURCE_COLUMNS["age"]])
     return {
         "year": year,
         "sex": _normalize_categorical(row[SOURCE_COLUMNS["sex"]], "Sex"),
-        "site": row[SOURCE_COLUMNS["site"]],
+        "site": row[SOURCE_COLUMNS["site"]].strip(),
         "histology_group": _normalize_categorical(
             row[SOURCE_COLUMNS["histology"]], "Histology"
         ),
@@ -126,10 +137,24 @@ def _survival_record_fields(row: Mapping[str, str], year: int) -> dict[str, obje
 def normalize_tnm_record(row: Mapping[str, str]) -> TNMRecord:
     year = parse_year(row[SOURCE_COLUMNS["year"]])
     raw_t_stage, raw_n_stage, raw_m_stage, stage_source = choose_tnm_source(row, year)
+    raw_mx_audit = choose_raw_mx_audit_source(row, year)
+    site_v1 = row[SOURCE_COLUMNS["site"]].strip()
+    if SOURCE_COLUMNS["primary_site"] not in row:
+        raise ValueError("Primary Site is missing")
+    site_v2, main_analysis_included, _primary_site_code = map_site_v2(
+        row[SOURCE_COLUMNS["primary_site"]]
+    )
     return TNMRecord(
         **_survival_record_fields(row, year),
         t_stage=normalize_t_stage(raw_t_stage),
         n_stage=normalize_n_stage(raw_n_stage),
-        m_stage=normalize_m_stage(raw_m_stage),
+        m_stage=(
+            "M0"
+            if str(raw_mx_audit).strip().upper().replace(" ", "") == "MX"
+            else normalize_m_stage(raw_m_stage)
+        ),
         stage_source=stage_source,
+        site_v1=site_v1,
+        site_v2=site_v2,
+        main_analysis_included=main_analysis_included,
     )

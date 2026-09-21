@@ -24,14 +24,13 @@ vi.mock('./components/SurvivalChart', () => ({
 import App from './App'
 
 const sites = [
-  'Lip', 'Tongue', 'Gum and Other Mouth', 'Floor of Mouth', 'Salivary Gland',
-  'Tonsil', 'Oropharynx', 'Nasopharynx', 'Hypopharynx',
-  'Other Oral Cavity and Pharynx', 'Nose, Nasal Cavity and Middle Ear',
-  'Larynx', 'Thyroid',
+  'Lip', 'Oral Tongue', 'Gum and Other Mouth', 'Floor of Mouth',
+  'Salivary Gland', 'Oropharynx', 'Hypopharynx',
+  'Other Oral Cavity and Pharynx', 'Nose, Nasal Cavity and Middle Ear', 'Larynx',
 ]
 
 const core: CoreData = {
-  metadata: { eligible_record_count: 211160 },
+  metadata: { eligible_record_count: 106952 },
   options: {
     sites,
     sexes: ['Female', 'Male'],
@@ -45,7 +44,7 @@ const core: CoreData = {
 
 const row: LookupRow = {
   key: 'matched', cohort_type: 'tnm', stage_source: 'AJCC 7th / SEER Combined TNM',
-  matching_level: 'full', sex: 'Female', site: 'Tongue',
+  matching_level: 'full', sex: 'Female', site: 'Oral Tongue',
   histology_group: '8050-8089: squamous cell neoplasms', age_group: '50-59',
   t_stage: 'T2', n_stage: 'N1', m_stage: 'M0', sample_size: 84, event_count: 24,
   censor_count: 60, median_survival_months: 76, median_followup_months: 48,
@@ -64,7 +63,7 @@ function artifact(site: string): LookupArtifact {
   return { site, thresholds: { minimum_sample: 20, stable_sample: 50 }, rows: [{ ...row, site }], index: { matched: 0 } }
 }
 
-async function selectCompleteQuery(user: ReturnType<typeof userEvent.setup>, site = 'Tongue') {
+async function selectCompleteQuery(user: ReturnType<typeof userEvent.setup>, site = 'Oral Tongue') {
   await user.selectOptions(screen.getByLabelText('性别'), 'Female')
   await user.selectOptions(screen.getByLabelText('解剖部位'), site)
   await user.selectOptions(screen.getByLabelText('组织学类型'), '8050-8089: squamous cell neoplasms')
@@ -82,7 +81,7 @@ describe('App', () => {
   })
   afterEach(cleanup)
 
-  it('defaults to Chinese with one TNM page, 13 sites, and no Summary or MX option', async () => {
+  it('defaults to Chinese with one TNM page, 10 sites, and no Summary or MX option', async () => {
     render(<App />)
     await screen.findByLabelText('性别')
 
@@ -91,7 +90,7 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: '中文' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByRole('tab')).not.toBeInTheDocument()
     expect(screen.queryByText(/总体分期/)).not.toBeInTheDocument()
-    expect(screen.getByLabelText('解剖部位').querySelectorAll('option')).toHaveLength(14)
+    expect(screen.getByLabelText('解剖部位').querySelectorAll('option')).toHaveLength(11)
     expect(screen.getByLabelText('M 分期')).toHaveTextContent('M0')
     expect(screen.getByLabelText('M 分期')).toHaveTextContent('M1')
     expect(Array.from(screen.getByLabelText('M 分期').querySelectorAll('option')).map((option) => option.getAttribute('value'))).toContain('Unknown')
@@ -109,7 +108,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'English' }))
 
     expect(screen.getByLabelText('Sex')).toHaveValue('Female')
-    expect(screen.getByLabelText('Anatomical site')).toHaveValue('Tongue')
+    expect(screen.getByLabelText('Anatomical site')).toHaveValue('Oral Tongue')
     expect(screen.getByLabelText('Age at diagnosis')).toHaveValue(55)
     expect(screen.getByText('Reference group')).toBeInTheDocument()
   })
@@ -142,14 +141,14 @@ describe('App', () => {
     expect(document.documentElement).toHaveAttribute('lang', 'en')
     expect(document.title).toBe(t('en', 'header.title'))
     expect(screen.getByLabelText('Sex')).toHaveValue('Female')
-    expect(screen.getByLabelText('Anatomical site')).toHaveValue('Tongue')
+    expect(screen.getByLabelText('Anatomical site')).toHaveValue('Oral Tongue')
     expect(screen.getByText('Reference group')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '中文' }))
     expect(document.documentElement).toHaveAttribute('lang', 'zh')
     expect(document.title).toBe(t('zh', 'header.title'))
     expect(screen.getByLabelText('性别')).toHaveValue('Female')
-    expect(screen.getByLabelText('解剖部位')).toHaveValue('Tongue')
+    expect(screen.getByLabelText('解剖部位')).toHaveValue('Oral Tongue')
     expect(screen.getByText('参照组例数')).toBeInTheDocument()
   })
 
@@ -159,11 +158,11 @@ describe('App', () => {
     await screen.findByLabelText('解剖部位')
     const site = screen.getByLabelText('解剖部位')
 
-    await user.selectOptions(site, 'Tongue')
-    await waitFor(() => expect(loadSiteShard).toHaveBeenCalledWith('Tongue', core.manifest))
+    await user.selectOptions(site, 'Oral Tongue')
+    await waitFor(() => expect(loadSiteShard).toHaveBeenCalledWith('Oral Tongue', core.manifest))
     await user.selectOptions(site, 'Larynx')
     await waitFor(() => expect(loadSiteShard).toHaveBeenCalledWith('Larynx', core.manifest))
-    await user.selectOptions(site, 'Tongue')
+    await user.selectOptions(site, 'Oral Tongue')
 
     await waitFor(() => expect(loadSiteShard).toHaveBeenCalledTimes(2))
   })
@@ -171,14 +170,14 @@ describe('App', () => {
   it('deduplicates in-flight site loads and ignores a stale response after the site changes', async () => {
     let resolveTongue!: (value: LookupArtifact) => void
     const tongue = new Promise<LookupArtifact>((resolve) => { resolveTongue = resolve })
-    loadSiteShard.mockImplementation((site: string) => site === 'Tongue' ? tongue : Promise.resolve(artifact(site)))
+    loadSiteShard.mockImplementation((site: string) => site === 'Oral Tongue' ? tongue : Promise.resolve(artifact(site)))
     const user = userEvent.setup()
     render(<App />)
     await screen.findByLabelText('解剖部位')
     const site = screen.getByLabelText('解剖部位')
 
     await user.selectOptions(screen.getByLabelText('性别'), 'Female')
-    await user.selectOptions(site, 'Tongue')
+    await user.selectOptions(site, 'Oral Tongue')
     await user.selectOptions(screen.getByLabelText('组织学类型'), '8050-8089: squamous cell neoplasms')
     await user.type(screen.getByLabelText('诊断年龄'), '55')
     await user.selectOptions(screen.getByLabelText('T 分期'), 'T2')
@@ -187,25 +186,25 @@ describe('App', () => {
     await user.selectOptions(site, 'Larynx')
     expect(loadSiteShard).toHaveBeenCalledTimes(2)
     await waitFor(() => expect(screen.getAllByText('喉')).toHaveLength(2))
-    await user.selectOptions(site, 'Tongue')
+    await user.selectOptions(site, 'Oral Tongue')
     await user.selectOptions(site, 'Larynx')
     expect(loadSiteShard).toHaveBeenCalledTimes(2)
-    resolveTongue(artifact('Tongue'))
+    resolveTongue(artifact('Oral Tongue'))
     await waitFor(() => expect(screen.getAllByText('喉')).toHaveLength(2))
   })
 
   it('does not surface a late failed shard after switching to a successful site', async () => {
     let rejectTongue!: (reason?: unknown) => void
     const tongue = new Promise<LookupArtifact>((_, reject) => { rejectTongue = reject })
-    loadSiteShard.mockImplementation((nextSite: string) => nextSite === 'Tongue' ? tongue : Promise.resolve(artifact(nextSite)))
+    loadSiteShard.mockImplementation((nextSite: string) => nextSite === 'Oral Tongue' ? tongue : Promise.resolve(artifact(nextSite)))
 
     const user = userEvent.setup()
     render(<App />)
     await screen.findByLabelText('解剖部位')
     const site = screen.getByLabelText('解剖部位')
 
-    await user.selectOptions(site, 'Tongue')
-    await waitFor(() => expect(loadSiteShard).toHaveBeenCalledWith('Tongue', core.manifest))
+    await user.selectOptions(site, 'Oral Tongue')
+    await waitFor(() => expect(loadSiteShard).toHaveBeenCalledWith('Oral Tongue', core.manifest))
     await selectCompleteQuery(user, 'Larynx')
 
     await waitFor(() => expect(screen.getByText('84')).toBeInTheDocument())
