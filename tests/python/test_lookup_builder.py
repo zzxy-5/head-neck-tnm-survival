@@ -86,6 +86,22 @@ class LookupBuilderTests(unittest.TestCase):
             self.assertTrue(all(row["site"] == site for row in artifact["rows"]))
             self.assertNotIn("MX", json.dumps(artifact, allow_nan=False))
 
+    def test_builder_accepts_an_explicit_analysis_only_site_mapping(self):
+        oral_tongue = TNMRecord(
+            2016, "Male", "Oral Tongue", "SCC", "50-59", "<60", 24, True,
+            "T2", "N1", "M0", "SEER Combined TNM",
+        )
+        site_slugs = {"Oral Tongue": "oral-tongue"}
+
+        artifact = build_site_artifact(
+            "Oral Tongue", [oral_tongue], site_slugs=site_slugs,
+        )
+        shards, manifest = build_site_shards([oral_tongue], site_slugs=site_slugs)
+
+        self.assertEqual(artifact["site"], "Oral Tongue")
+        self.assertEqual(set(shards), {"Oral Tongue"})
+        self.assertEqual(manifest, {"sites": {"Oral Tongue": "oral-tongue.json"}})
+
     def test_site_artifact_and_shards_reject_unnormalized_mx_before_output(self):
         mx_record = TNMRecord(
             2016, "Male", "Larynx", "SCC", "50-59", "<60", 24, True,

@@ -58,7 +58,9 @@ class SchemaTests(unittest.TestCase):
 
     def test_source_columns_are_limited_to_the_tnm_pipeline(self):
         self.assertEqual(SOURCE_COLUMNS["age"], "Age recode with single ages and 90+")
+        self.assertEqual(SOURCE_COLUMNS["ajcc_m_6"], "Derived AJCC M, 6th ed (2004-2015)")
         self.assertEqual(SOURCE_COLUMNS["combined_t"], "Derived SEER Combined T (2016-2017)")
+        self.assertEqual(SOURCE_COLUMNS["primary_site"], "Primary Site")
         self.assertNotIn("summary_stage", SOURCE_COLUMNS)
         self.assertNotIn("eod_m", SOURCE_COLUMNS)
 

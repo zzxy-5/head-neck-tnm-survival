@@ -6,13 +6,20 @@ import unittest
 PROJECT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT / "scripts"))
 
-from era_survival.schema import SITE_SLUGS, TARGET_SITES
+from era_survival.site_mapping import SITE_V2_SLUGS
 
 
 EXPECTED_SITE_COUNTS = {
+    "Lip": 5_065,
+    "Oral Tongue": 12_233,
+    "Gum and Other Mouth": 9_444,
+    "Floor of Mouth": 3_605,
+    "Salivary Gland": 9_282,
+    "Oropharynx": 34_483,
+    "Hypopharynx": 4_209,
+    "Other Oral Cavity and Pharynx": 1_740,
     "Nose, Nasal Cavity and Middle Ear": 4_969,
-    "Larynx": 21_786,
-    "Thyroid": 99_715,
+    "Larynx": 21_922,
 }
 EXPECTED_SOURCES = {
     "export_C00-C09.csv",
@@ -37,17 +44,21 @@ class RealArtifactContractTests(unittest.TestCase):
         self.assertEqual(metadata["flow_counts"]["source_rows"], 1_808_471)
         self.assertEqual(set(metadata["source_counts"]), EXPECTED_SOURCES)
         self.assertEqual(sum(metadata["source_counts"].values()), 1_808_471)
-        self.assertEqual(metadata["eligible_record_count"], 211_160)
-        self.assertEqual(sum(metadata["site_record_counts"].values()), 211_160)
-        self.assertEqual(set(metadata["site_record_counts"]), TARGET_SITES)
+        self.assertEqual(metadata["cohort_version"], "site_v2_main")
+        self.assertEqual(metadata["source_eligible_record_count"], 211_160)
+        self.assertEqual(metadata["eligible_record_count"], 106_952)
+        self.assertEqual(metadata["precomputed_combination_count"], 22_474)
+        self.assertEqual(metadata["returnable_combination_count"], 4_010)
+        self.assertEqual(sum(metadata["site_record_counts"].values()), 106_952)
+        self.assertEqual(set(metadata["site_record_counts"]), set(SITE_V2_SLUGS))
         for site, count in EXPECTED_SITE_COUNTS.items():
             self.assertEqual(metadata["site_record_counts"][site], count)
 
-        self.assertEqual(options["sites"], list(SITE_SLUGS))
+        self.assertEqual(options["sites"], list(SITE_V2_SLUGS))
         self.assertEqual(options["m_stages"], ["M0", "M1", "Unknown"])
         self.assertEqual(
             manifest["sites"],
-            {site: f"{slug}.json" for site, slug in SITE_SLUGS.items()},
+            {site: f"{slug}.json" for site, slug in SITE_V2_SLUGS.items()},
         )
 
         expected_json_paths = {
@@ -63,12 +74,16 @@ class RealArtifactContractTests(unittest.TestCase):
         self.assertEqual(actual_json_paths, expected_json_paths)
 
         all_artifacts = [metadata, options, manifest]
+        precomputed_count = 0
+        returnable_count = 0
         for site, filename in manifest["sites"].items():
             shard = read_json(data / "lookup" / filename)
             self.assertEqual(shard["site"], site)
             self.assertGreater(shard["summary"]["record_count"], 0)
             self.assertGreater(len(shard["rows"]), 0)
+            precomputed_count += len(shard["rows"])
             for row in shard["rows"]:
+                returnable_count += row["sample_size"] >= 20
                 self.assertNotIn("curve_ci_lower_probs", row)
                 self.assertNotIn("curve_ci_upper_probs", row)
                 self.assertIn("fixed_survival", row)
@@ -81,6 +96,9 @@ class RealArtifactContractTests(unittest.TestCase):
                 self.assertIn("risk_table_counts", row)
                 self.assertEqual(len(row["risk_table_months"]), len(row["risk_table_counts"]))
             all_artifacts.append(shard)
+
+        self.assertEqual(precomputed_count, 22_474)
+        self.assertEqual(returnable_count, 4_010)
 
         payload = json.dumps(all_artifacts, ensure_ascii=False)
         self.assertNotIn("MX", payload)

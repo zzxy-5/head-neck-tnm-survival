@@ -19,6 +19,7 @@ describe('i18n', () => {
   it.each([
     ['Female', '女性'],
     ['Male', '男性'],
+    ['Oral Tongue', '舌体（舌前2/3）'],
     ['Tongue', '舌'],
     ['Floor of Mouth', '口底'],
     ['Squamous cell carcinoma', '鳞状细胞癌'],

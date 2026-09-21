@@ -3,10 +3,17 @@ import { dirname, join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const DATA_DIRECTORY = join(process.cwd(), 'public', 'data')
-const ADDED_SITE_COUNTS = {
+const SITE_V2_COUNTS = {
+  Lip: 5_065,
+  'Oral Tongue': 12_233,
+  'Gum and Other Mouth': 9_444,
+  'Floor of Mouth': 3_605,
+  'Salivary Gland': 9_282,
+  Oropharynx: 34_483,
+  Hypopharynx: 4_209,
+  'Other Oral Cavity and Pharynx': 1_740,
   'Nose, Nasal Cavity and Middle Ear': 4_969,
-  Larynx: 21_786,
-  Thyroid: 99_715,
+  Larynx: 21_922,
 } as const
 
 type FixedEstimate = {
@@ -17,6 +24,7 @@ type FixedEstimate = {
 
 type ArtifactRow = {
   key: string
+  sample_size: number
   maximum_followup_months: number
   m_stage: string
   fixed_survival: Record<'12' | '36' | '60', FixedEstimate>
@@ -42,17 +50,23 @@ function jsonFiles(directory: string): string[] {
 }
 
 describe('real static TNM artifacts', () => {
-  it('contains exactly the 13 site shards and reconciles their cohort counts', () => {
+  it('contains exactly the 10 site-v2 shards and reconciles their cohort counts', () => {
     const metadata = readJson<{
+      cohort_version: string
       eligible_record_count: number
+      precomputed_combination_count: number
+      returnable_combination_count: number
       site_record_counts: Record<string, number>
     }>('metadata.json')
     const manifest = readJson<{ sites: Record<string, string> }>('site_manifest.json')
 
-    expect(metadata.eligible_record_count).toBe(211_160)
-    expect(Object.keys(manifest.sites)).toHaveLength(13)
-    expect(metadata.site_record_counts).toMatchObject(ADDED_SITE_COUNTS)
-    expect(Object.values(metadata.site_record_counts).reduce((sum, count) => sum + count, 0)).toBe(211_160)
+    expect(metadata.cohort_version).toBe('site_v2_main')
+    expect(metadata.eligible_record_count).toBe(106_952)
+    expect(metadata.precomputed_combination_count).toBe(22_474)
+    expect(metadata.returnable_combination_count).toBe(4_010)
+    expect(Object.keys(manifest.sites)).toHaveLength(10)
+    expect(metadata.site_record_counts).toEqual(SITE_V2_COUNTS)
+    expect(Object.values(metadata.site_record_counts).reduce((sum, count) => sum + count, 0)).toBe(106_952)
 
     const expectedFiles = [
       'metadata.json',
@@ -62,15 +76,21 @@ describe('real static TNM artifacts', () => {
     ].sort()
     expect(jsonFiles(DATA_DIRECTORY).sort()).toEqual(expectedFiles)
 
+    let precomputedCount = 0
+    let returnableCount = 0
     for (const [site, filename] of Object.entries(manifest.sites)) {
       const shard = readJson<LookupShard>(join('lookup', filename))
       expect(shard.site).toBe(site)
       expect(shard.rows.length).toBeGreaterThan(0)
+      precomputedCount += shard.rows.length
+      returnableCount += shard.rows.filter((row) => row.sample_size >= 20).length
 
       for (const [key, position] of Object.entries(shard.index)) {
         expect(shard.rows[position]?.key).toBe(key)
       }
     }
+    expect(precomputedCount).toBe(22_474)
+    expect(returnableCount).toBe(4_010)
   })
 
   it('contains only supported TNM content and consistent survival estimates', () => {

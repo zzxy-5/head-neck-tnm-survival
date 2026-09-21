@@ -11,6 +11,8 @@ from era_survival.lookup_builder import THRESHOLDS
 from era_survival.schema import SITE_SLUGS, TARGET_SITES
 from era_survival.validation import (
     EXPECTED_ELIGIBLE_RECORD_COUNT,
+    EXPECTED_MAIN_ANALYSIS_RECORD_COUNT,
+    EXPECTED_SITE_V2_RECORD_COUNTS,
     EXPECTED_SOURCE_ROW_COUNT,
     FIXED_TIME_POLICY,
     MX_POLICY,
@@ -18,6 +20,7 @@ from era_survival.validation import (
     validate_stage_source_for_year,
     validate_artifact_set,
 )
+from era_survival.site_mapping import SITE_V2_MAPPING_POLICY, SITE_V2_SLUGS
 
 
 EXPECTED_ADDED_SITE_COUNTS = {
@@ -140,6 +143,54 @@ def valid_artifact_set() -> tuple[dict, dict, dict, dict[str, dict]]:
     return metadata, options, manifest, shards
 
 
+def valid_site_v2_artifact_set() -> tuple[dict, dict, dict, dict[str, dict]]:
+    metadata, options, _manifest, _shards = valid_artifact_set()
+    site_counts = {
+        site: EXPECTED_SITE_V2_RECORD_COUNTS[site]
+        for site in SITE_V2_SLUGS
+    }
+    metadata.update({
+        "cohort_version": "site_v2_main",
+        "source_eligible_record_count": EXPECTED_ELIGIBLE_RECORD_COUNT,
+        "eligible_record_count": EXPECTED_MAIN_ANALYSIS_RECORD_COUNT,
+        "site_record_counts": site_counts,
+        "precomputed_combination_count": 22_474,
+        "returnable_combination_count": 4_010,
+        "site_v2_record_counts": dict(EXPECTED_SITE_V2_RECORD_COUNTS),
+        "main_analysis_record_count": EXPECTED_MAIN_ANALYSIS_RECORD_COUNT,
+        "site_v2_excluded_site_counts": {
+            "Nasopharynx": 4_493,
+            "Thyroid": 99_715,
+        },
+        "site_v2_mapping_policy": SITE_V2_MAPPING_POLICY,
+    })
+    options["sites"] = list(SITE_V2_SLUGS)
+    manifest = {
+        "sites": {site: f"{slug}.json" for site, slug in SITE_V2_SLUGS.items()}
+    }
+    shards = {}
+    for site, count in site_counts.items():
+        row = lookup_row(site, count)
+        shards[site] = {
+            "version": 1,
+            "site": site,
+            "cohort_type": "tnm_2010_2017",
+            "cohort_years": [2010, 2017],
+            "stage_sources": ["AJCC 7th edition", "SEER Combined TNM"],
+            "thresholds": dict(THRESHOLDS),
+            "confidence_interval": {"level": 0.95, "method": "Greenwood log-log"},
+            "rows": [row],
+            "index": {row["key"]: 0},
+            "summary": {
+                "record_count": count,
+                "row_count": 1,
+                "sexes": ["Female", "Male"],
+                "histology_groups": ["SCC"],
+            },
+        }
+    return metadata, options, manifest, shards
+
+
 class ArtifactSetValidationTests(unittest.TestCase):
     def setUp(self):
         self.artifacts = valid_artifact_set()
@@ -149,6 +200,57 @@ class ArtifactSetValidationTests(unittest.TestCase):
 
     def test_complete_focused_artifact_set_passes(self):
         self.validate()
+
+    def test_site_v2_main_artifact_set_passes_with_exact_ten_site_contract(self):
+        artifacts = valid_site_v2_artifact_set()
+        validate_artifact_set(
+            *artifacts,
+            site_slugs=SITE_V2_SLUGS,
+            expected_eligible_record_count=EXPECTED_MAIN_ANALYSIS_RECORD_COUNT,
+            cohort_version="site_v2_main",
+        )
+
+        broken = copy.deepcopy(artifacts)
+        broken[0]["site_record_counts"]["Oropharynx"] -= 1
+        with self.assertRaisesRegex(ValueError, "site_record_counts"):
+            validate_artifact_set(
+                *broken,
+                site_slugs=SITE_V2_SLUGS,
+                expected_eligible_record_count=EXPECTED_MAIN_ANALYSIS_RECORD_COUNT,
+                cohort_version="site_v2_main",
+            )
+
+    def test_site_v2_metadata_is_validated_while_legacy_metadata_remains_valid(self):
+        artifacts = copy.deepcopy(self.artifacts)
+        metadata = artifacts[0]
+        metadata.update({
+            "site_v2_record_counts": dict(EXPECTED_SITE_V2_RECORD_COUNTS),
+            "main_analysis_record_count": EXPECTED_MAIN_ANALYSIS_RECORD_COUNT,
+            "site_v2_excluded_site_counts": {
+                "Nasopharynx": 4_493,
+                "Thyroid": 99_715,
+            },
+            "site_v2_mapping_policy": SITE_V2_MAPPING_POLICY,
+        })
+        self.validate(artifacts)
+
+        broken = copy.deepcopy(artifacts)
+        broken[0]["site_v2_record_counts"]["Oropharynx"] -= 1
+        with self.assertRaisesRegex(ValueError, "site_v2_record_counts.Oropharynx"):
+            self.validate(broken)
+
+        missing = copy.deepcopy(artifacts)
+        del missing[0]["site_v2_mapping_policy"]
+        with self.assertRaisesRegex(ValueError, "site_v2_mapping_policy"):
+            self.validate(missing)
+
+        mismatched_exclusion = copy.deepcopy(artifacts)
+        mismatched_exclusion[0]["site_v2_excluded_site_counts"] = {
+            "Nasopharynx": 99_715,
+            "Thyroid": 4_493,
+        }
+        with self.assertRaisesRegex(ValueError, "site_v2_excluded_site_counts.Nasopharynx"):
+            self.validate(mismatched_exclusion)
 
     def test_source_and_eligible_totals_are_exact_and_reconcile(self):
         for field, value in (

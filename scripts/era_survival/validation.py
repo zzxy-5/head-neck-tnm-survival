@@ -7,6 +7,13 @@ from typing import Any
 
 from .lookup_builder import THRESHOLDS
 from .schema import DEFAULT_SOURCE_PATHS, SITE_SLUGS, TARGET_SITES
+from .site_mapping import (
+    SITE_V2_ALL_SITES,
+    SITE_V2_EXCLUDED_SITES,
+    SITE_V2_MAIN_SITES,
+    SITE_V2_MAPPING_POLICY,
+    SITE_V2_SLUGS,
+)
 
 EXPECTED_SOURCE_ROW_COUNT = 1_808_471
 EXPECTED_ELIGIBLE_RECORD_COUNT = 211_160
@@ -15,11 +22,33 @@ EXPECTED_ADDED_SITE_COUNTS = {
     "Larynx": 21_786,
     "Thyroid": 99_715,
 }
+EXPECTED_SITE_V2_RECORD_COUNTS = {
+    "Lip": 5_065,
+    "Oral Tongue": 12_233,
+    "Gum and Other Mouth": 9_444,
+    "Floor of Mouth": 3_605,
+    "Salivary Gland": 9_282,
+    "Oropharynx": 34_483,
+    "Hypopharynx": 4_209,
+    "Other Oral Cavity and Pharynx": 1_740,
+    "Nose, Nasal Cavity and Middle Ear": 4_969,
+    "Larynx": 21_922,
+    "Nasopharynx": 4_493,
+    "Thyroid": 99_715,
+}
+EXPECTED_MAIN_ANALYSIS_RECORD_COUNT = 106_952
+EXPECTED_SITE_V2_MAIN_COUNTS = {
+    site: EXPECTED_SITE_V2_RECORD_COUNTS[site]
+    for site in SITE_V2_MAIN_SITES
+}
 STAGE_SOURCE_POLICY = {
     "2010-2015": "AJCC 7th edition",
     "2016-2017": "SEER Combined TNM",
 }
-MX_POLICY = "Explicit unknown metastasis codes map to M0"
+MX_POLICY = (
+    "Explicit legacy unknown-metastasis codes in the 2010-2015 AJCC "
+    "6th-edition audit field, or in the 2016-2017 Combined M field, map to M0"
+)
 FIXED_TIME_POLICY = (
     "Estimate only when observed follow-up reaches the requested horizon"
 )
@@ -267,6 +296,10 @@ def validate_artifact_set(
     options: Mapping[str, Any],
     manifest: Mapping[str, Any],
     shards: Mapping[str, Mapping[str, Any]],
+    *,
+    site_slugs: Mapping[str, str] = SITE_SLUGS,
+    expected_eligible_record_count: int = EXPECTED_ELIGIBLE_RECORD_COUNT,
+    cohort_version: str = "site_v1",
 ) -> None:
     _required(metadata, (
         "version", "generated_at", "source_counts", "flow_counts", "exclusion_counts",
@@ -304,18 +337,88 @@ def validate_artifact_set(
     if sum(exclusions.values()) + EXPECTED_ELIGIBLE_RECORD_COUNT != EXPECTED_SOURCE_ROW_COUNT:
         _fail("metadata.exclusion_counts", "must partition source rows with the eligible cohort")
 
-    if metadata["eligible_record_count"] != EXPECTED_ELIGIBLE_RECORD_COUNT:
-        _fail("metadata.eligible_record_count", f"must equal {EXPECTED_ELIGIBLE_RECORD_COUNT}")
+    if metadata["eligible_record_count"] != expected_eligible_record_count:
+        _fail(
+            "metadata.eligible_record_count",
+            f"must equal {expected_eligible_record_count}",
+        )
     site_counts = _mapping(metadata["site_record_counts"], "metadata.site_record_counts")
-    if set(site_counts) != TARGET_SITES:
-        _fail("metadata.site_record_counts", "must contain exactly the 13 target sites")
+    expected_sites = set(site_slugs)
+    if set(site_counts) != expected_sites:
+        _fail("metadata.site_record_counts", "must contain exactly the configured sites")
     for site, count in site_counts.items():
         _nonnegative_int(count, f"metadata.site_record_counts.{site}")
-    if sum(site_counts.values()) != EXPECTED_ELIGIBLE_RECORD_COUNT:
-        _fail("metadata.site_record_counts", f"must sum to {EXPECTED_ELIGIBLE_RECORD_COUNT}")
-    for site, count in EXPECTED_ADDED_SITE_COUNTS.items():
-        if site_counts.get(site) != count:
-            _fail(f"metadata.site_record_counts.{site}", f"must equal {count}")
+    if sum(site_counts.values()) != expected_eligible_record_count:
+        _fail(
+            "metadata.site_record_counts",
+            f"must sum to {expected_eligible_record_count}",
+        )
+    if cohort_version == "site_v1":
+        if expected_sites != TARGET_SITES:
+            _fail("site_slugs", "site-v1 must use the 13 legacy sites")
+        for site, count in EXPECTED_ADDED_SITE_COUNTS.items():
+            if site_counts.get(site) != count:
+                _fail(f"metadata.site_record_counts.{site}", f"must equal {count}")
+    elif cohort_version == "site_v2_main":
+        if dict(site_slugs) != SITE_V2_SLUGS:
+            _fail("site_slugs", "site-v2 main must use the frozen 10-site mapping")
+        if metadata.get("cohort_version") != "site_v2_main":
+            _fail("metadata.cohort_version", "must equal site_v2_main")
+        if metadata.get("source_eligible_record_count") != EXPECTED_ELIGIBLE_RECORD_COUNT:
+            _fail(
+                "metadata.source_eligible_record_count",
+                f"must equal {EXPECTED_ELIGIBLE_RECORD_COUNT}",
+            )
+        for site, count in EXPECTED_SITE_V2_MAIN_COUNTS.items():
+            if site_counts.get(site) != count:
+                _fail(f"metadata.site_record_counts.{site}", f"must equal {count}")
+    else:
+        _fail("cohort_version", f"unsupported value {cohort_version!r}")
+
+    # Site-v2 metadata is optional for legacy, already-built public artifacts;
+    # any newly generated metadata must include and reconcile the full v2 set.
+    v2_fields = {
+        "site_v2_record_counts",
+        "main_analysis_record_count",
+        "site_v2_excluded_site_counts",
+        "site_v2_mapping_policy",
+    }
+    if cohort_version == "site_v2_main" or any(field in metadata for field in v2_fields):
+        _required(metadata, tuple(v2_fields), "metadata")
+        v2_counts = _mapping(metadata["site_v2_record_counts"], "metadata.site_v2_record_counts")
+        if set(v2_counts) != set(SITE_V2_ALL_SITES):
+            _fail("metadata.site_v2_record_counts", "must contain exactly the 12 site-v2 groups")
+        for site, expected in EXPECTED_SITE_V2_RECORD_COUNTS.items():
+            count = _nonnegative_int(v2_counts.get(site), f"metadata.site_v2_record_counts.{site}")
+            if count != expected:
+                _fail(f"metadata.site_v2_record_counts.{site}", f"must equal {expected}")
+        if sum(v2_counts.values()) != EXPECTED_ELIGIBLE_RECORD_COUNT:
+            _fail("metadata.site_v2_record_counts", f"must sum to {EXPECTED_ELIGIBLE_RECORD_COUNT}")
+
+        main_count = _nonnegative_int(
+            metadata["main_analysis_record_count"], "metadata.main_analysis_record_count"
+        )
+        if main_count != EXPECTED_MAIN_ANALYSIS_RECORD_COUNT:
+            _fail("metadata.main_analysis_record_count", f"must equal {EXPECTED_MAIN_ANALYSIS_RECORD_COUNT}")
+        excluded = _mapping(
+            metadata["site_v2_excluded_site_counts"],
+            "metadata.site_v2_excluded_site_counts",
+        )
+        if set(excluded) != set(SITE_V2_EXCLUDED_SITES):
+            _fail("metadata.site_v2_excluded_site_counts", "must contain Nasopharynx and Thyroid")
+        for site in SITE_V2_EXCLUDED_SITES:
+            excluded_count = _nonnegative_int(
+                excluded[site], f"metadata.site_v2_excluded_site_counts.{site}"
+            )
+            if excluded_count != v2_counts[site]:
+                _fail(
+                    f"metadata.site_v2_excluded_site_counts.{site}",
+                    f"must equal site_v2_record_counts.{site}",
+                )
+        if sum(excluded.values()) + main_count != EXPECTED_ELIGIBLE_RECORD_COUNT:
+            _fail("metadata.site_v2_excluded_site_counts", "must partition the eligible v2 cohort")
+        if metadata["site_v2_mapping_policy"] != SITE_V2_MAPPING_POLICY:
+            _fail("metadata.site_v2_mapping_policy", "must equal the documented site-v2 mapping policy")
 
     for field, expected in (
         ("stage_source_policy", STAGE_SOURCE_POLICY),
@@ -332,8 +435,8 @@ def validate_artifact_set(
     ), "options")
     if options["version"] != 1:
         _fail("options.version", "must equal 1")
-    if options["sites"] != list(SITE_SLUGS):
-        _fail("options.sites", "must contain all 13 sites in display order")
+    if options["sites"] != list(site_slugs):
+        _fail("options.sites", "must contain all configured sites in display order")
     _string_list(options["sexes"], "options.sexes")
     _string_list(options["histology_groups"], "options.histology_groups")
     if options["age_groups"] != _AGE_GROUPS:
@@ -346,19 +449,19 @@ def validate_artifact_set(
         _fail("options.m_stages", f"must equal {_M_STAGES}")
 
     manifest_sites = _mapping(manifest.get("sites"), "manifest.sites")
-    if set(manifest_sites) != TARGET_SITES:
-        _fail("manifest.sites", "must contain exactly the 13 target sites")
-    for site, slug in SITE_SLUGS.items():
+    if set(manifest_sites) != expected_sites:
+        _fail("manifest.sites", "must contain exactly the configured sites")
+    for site, slug in site_slugs.items():
         expected_filename = f"{slug}.json"
         if manifest_sites.get(site) != expected_filename:
             _fail(f"manifest.sites.{site}", f"must equal {expected_filename}")
-    if set(shards) != TARGET_SITES:
-        _fail("shards", "must contain exactly the 13 target sites")
-    for site in SITE_SLUGS:
+    if set(shards) != expected_sites:
+        _fail("shards", "must contain exactly the configured sites")
+    for site in site_slugs:
         _validate_shard(site, shards[site], site_counts[site])
 
     payload = json.dumps([metadata, options, manifest, shards], ensure_ascii=False, allow_nan=False)
-    if "MX" in payload:
+    if '"MX"' in payload:
         _fail("artifacts", "must not contain MX")
     if "summary_stage" in payload.lower():
         _fail("artifacts", "must not contain Summary Stage fields")

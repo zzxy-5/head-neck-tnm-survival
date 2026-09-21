@@ -18,6 +18,7 @@ class CohortAssemblyTests(unittest.TestCase):
             SOURCE_COLUMNS["sex"]: "Female",
             SOURCE_COLUMNS["year"]: year,
             SOURCE_COLUMNS["site"]: site,
+            SOURCE_COLUMNS["primary_site"]: "022",
             SOURCE_COLUMNS["histology"]: "Squamous cell neoplasms",
             SOURCE_COLUMNS["age"]: "45 years",
             SOURCE_COLUMNS["survival_months"]: "12",
