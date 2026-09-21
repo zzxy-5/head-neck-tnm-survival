@@ -14,7 +14,8 @@ const coreResponses = {
 function fetcherFor(responses: Record<string, unknown>) {
   return vi.fn<typeof fetch>(async (input) => {
     const url = String(input)
-    const key = Object.keys(responses).find((path) => url.endsWith(path))
+    const pathname = url.split('?')[0]
+    const key = Object.keys(responses).find((path) => pathname.endsWith(path))
     if (key === undefined) return new Response(null, { status: 404 })
     return new Response(JSON.stringify(responses[key]), {
       headers: { 'Content-Type': 'application/json' },
@@ -34,11 +35,14 @@ describe('static data loading', () => {
     expect(core.manifest).toEqual(manifest)
     expect(fetcher).toHaveBeenCalledTimes(3)
     const urls = fetcher.mock.calls.map(([url]) => String(url))
-    expect(urls).toEqual([
+    expect(urls.map((url) => url.split('?')[0])).toEqual([
       `${import.meta.env.BASE_URL}data/metadata.json`,
       `${import.meta.env.BASE_URL}data/options.json`,
       `${import.meta.env.BASE_URL}data/site_manifest.json`,
     ])
+    const versions = urls.map((url) => new URL(url, 'https://example.test').searchParams.get('v'))
+    expect(new Set(versions).size).toBe(1)
+    expect(versions[0]).toBeTruthy()
     expect(urls.join('\n')).not.toMatch(/summary|eod/i)
   })
 
@@ -52,7 +56,9 @@ describe('static data loading', () => {
     const fetcher = fetcherFor({ 'data/lookup/oral-tongue.json': artifact })
 
     await expect(loadSiteShard('Oral Tongue', manifest, fetcher)).resolves.toEqual(artifact)
-    expect(fetcher).toHaveBeenCalledWith(`${import.meta.env.BASE_URL}data/lookup/oral-tongue.json`)
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.stringMatching(/data\/lookup\/oral-tongue\.json\?v=.+$/),
+    )
   })
 
   it('names the missing site shard in a readable error', async () => {
