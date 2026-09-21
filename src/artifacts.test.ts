@@ -43,6 +43,7 @@ function readJson<T>(relativePath: string): T {
 
 function jsonFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name.startsWith('._')) return []
     const path = join(directory, entry.name)
     if (entry.isDirectory()) return jsonFiles(path)
     return entry.name.endsWith('.json') ? [relative(DATA_DIRECTORY, path)] : []

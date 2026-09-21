@@ -1,6 +1,10 @@
 import type { CoreData, LookupArtifact, SiteManifest } from './types'
+import productionMetadata from '../public/data/metadata.json'
 
-const dataPath = (filename: string) => `${import.meta.env.BASE_URL}data/${filename}`
+const DATA_VERSION = encodeURIComponent(productionMetadata.generated_at)
+
+const dataPath = (filename: string) =>
+  `${import.meta.env.BASE_URL}data/${filename}?v=${DATA_VERSION}`
 
 async function loadJson<T>(filename: string, fetcher: typeof fetch): Promise<T> {
   const response = await fetcher(dataPath(filename))
